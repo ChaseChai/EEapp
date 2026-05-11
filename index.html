@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MathBlaster - 东方水墨 - 十卷</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.9.0/p5.js"></script>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            background-color: #2c2c2c;
+            font-family: 'Microsoft YaHei', 'SimHei', sans-serif;
+            overflow: hidden;
+        }
+        #game-container {
+            box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+            /* 防止长按选中文本 */
+            user-select: none;
+            -webkit-user-select: none;
+        }
+        canvas {
+            display: block;
+        }
+    </style>
+</head>
+<body>
+    <div id="game-container"></div>
+    <script src="main.js"></script>
+</body>
+</html>
