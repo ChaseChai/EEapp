@@ -328,7 +328,7 @@ export default function MathGame() {
         className="w-full max-w-6xl px-8 py-6 z-10 flex justify-between items-center text-ink-primary select-none mt-4"
       >
         <div className="flex items-baseline gap-4">
-          <h1 className="text-2xl font-semibold tracking-wider">MathBlaster</h1>
+          <h1 className="text-2xl font-semibold tracking-wider">MathBlaster <span className="text-xs text-ink-light font-normal text-opacity-50">v1.0.1</span></h1>
         </div>
         <div className="flex items-center gap-8 text-sm font-mono text-ink-light">
           <div className="flex items-center gap-2">
