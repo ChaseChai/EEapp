@@ -31,7 +31,7 @@ export default function MathGame() {
   const [currentLevelIdx, setCurrentLevelIdx] = useState(0);
   const level = LEVELS[currentLevelIdx];
   const [params, setParams] = useState({ a: 1, b: 1, c: 0 });
-  const [expression, setExpression] = useState(level.initialExpression);
+  const [expression, setExpression] = useState("");
   const [score, setScore] = useState(0);
   const [attempts, setAttempts] = useState(1);
   
@@ -47,12 +47,13 @@ export default function MathGame() {
   const hitParticlesRef = useRef<Particle[]>([]);
   const inkParticlesRef = useRef<{x: number, y: number, color: string, size: number}[]>([]);
   const compiledFuncRef = useRef(compileExpression(expression));
+  const cachedTrajectoryRef = useRef<{ points: {sx: number, sy: number}[], expr: string, paramsStr: string, cw: number }>({ points: [], expr: '', paramsStr: '', cw: 0 });
 
   const SCALE = 1; // Logical to Pixel scale mapping
   
   // Level Setup
   useEffect(() => {
-    setExpression(level.initialExpression);
+    setExpression("");
     setParams({ a: 1, b: 1, c: 0 });
     simState.current.targets = level.targets.map(t => ({ ...t, hit: false, rippleTime: 0 }));
     setScore(0);
@@ -141,25 +142,36 @@ export default function MathGame() {
       const { isValid, evaluate } = compiledFuncRef.current;
       
       // 2. Draw static preview trajectory
-      if (isValid && !simState.current.isLaunching && !simState.current.isRevealing) {
+      if (isValid && expression.trim() !== '' && !simState.current.isLaunching && !simState.current.isRevealing) {
         ctx.beginPath();
         ctx.strokeStyle = 'rgba(28, 28, 28, 0.2)'; 
         ctx.lineWidth = 2;
-        let started = false;
-        for(let lx = -cw/2; lx <= cw/2; lx += 2) {
-          try {
-            const ly = evaluate({ x: lx, a: params.a, b: params.b, c: params.c });
-            const { sx, sy } = toScreen(cx, cy, lx, ly);
-            if (!started) { ctx.moveTo(sx, sy); started = true; } 
-            else { ctx.lineTo(sx, sy); }
-          } catch(e) {}
+        
+        const paramsStr = JSON.stringify(params);
+        if (cachedTrajectoryRef.current.expr !== expression || cachedTrajectoryRef.current.paramsStr !== paramsStr || cachedTrajectoryRef.current.cw !== cw) {
+          const newPoints = [];
+          for(let lx = -cw/2; lx <= cw/2; lx += 10) {
+            try {
+              const ly = evaluate({ x: lx, a: params.a, b: params.b, c: params.c });
+              newPoints.push(toScreen(cx, cy, lx, ly));
+            } catch(e) {}
+          }
+          cachedTrajectoryRef.current = { points: newPoints, expr: expression, paramsStr, cw };
+        }
+
+        const pts = cachedTrajectoryRef.current.points;
+        if (pts.length > 0) {
+          ctx.moveTo(pts[0].sx, pts[0].sy);
+          for(let i=1; i<pts.length; i++) {
+            ctx.lineTo(pts[i].sx, pts[i].sy);
+          }
         }
         ctx.stroke();
       }
 
       // 3. Update Launch State
       if (simState.current.isLaunching && isValid) {
-        const speed = 4;
+        const speed = 2.5; // Decreased speed for smoother visual physics
         // Make sure it starts roughly slightly before the screen
         if (ballPosRef.current.x < -cw/2 - 100) {
            ballPosRef.current.x = -cw/2 - 50;
@@ -413,9 +425,10 @@ export default function MathGame() {
                  value={expression}
                  onChange={(e) => setExpression(e.target.value)}
                  spellCheck={false}
+                 placeholder="Enter an expression..."
                />
              </div>
-             {!compiledFuncRef.current.isValid && (
+             {!compiledFuncRef.current.isValid && expression.trim() !== '' && (
                <span className="absolute -bottom-6 left-0 text-xs text-accent-red">Invalid syntax</span>
              )}
           </div>
