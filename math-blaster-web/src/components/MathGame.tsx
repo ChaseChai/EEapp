@@ -53,7 +53,7 @@ export default function MathGame() {
   
   // Level Setup
   useEffect(() => {
-    setExpression("");
+    setExpression(level.initialExpression);
     setParams({ a: 1, b: 1, c: 0 });
     simState.current.targets = level.targets.map(t => ({ ...t, hit: false, rippleTime: 0 }));
     setScore(0);
@@ -171,7 +171,7 @@ export default function MathGame() {
 
       // 3. Update Launch State
       if (simState.current.isLaunching && isValid) {
-        const speed = 2.5; // Decreased speed for smoother visual physics
+        const speed = 4; // Increased speed for snappier visual physics
         // Make sure it starts roughly slightly before the screen
         if (ballPosRef.current.x < -cw/2 - 100) {
            ballPosRef.current.x = -cw/2 - 50;
