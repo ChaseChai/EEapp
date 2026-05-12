@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useRef, useEffect, useState, useMemo } from 'react';
+import React, { useRef, useEffect, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { compileExpression } from '@/core/mathEngine';
 import { LEVELS } from '@/core/levels';
@@ -35,62 +35,64 @@ export default function MathGame() {
   const [score, setScore] = useState(0);
   const [attempts, setAttempts] = useState(1);
   
-  // Simulation State
-  const [isLaunching, setIsLaunching] = useState(false);
-  const [isRevealing, setIsRevealing] = useState(false);
-  const [targets, setTargets] = useState<Target[]>([]);
+  // Pure Refs for Render Loop (Zero React Lag)
+  const simState = useRef({
+    isLaunching: false,
+    isRevealing: false,
+    targets: [] as Target[]
+  });
   
-  // Refs for Animation Frame
   const requestRef = useRef<number>(0);
-  const timeRef = useRef(0);
-  const ballPosRef = useRef({ x: -300, y: 0, active: false });
-  const particlesRef = useRef<Particle[]>([]);
-  const trailRef = useRef<{x: number, y: number}[]>([]);
+  const ballPosRef = useRef({ x: -1000, y: 0, active: false });
+  const hitParticlesRef = useRef<Particle[]>([]);
+  const inkParticlesRef = useRef<{x: number, y: number, color: string, size: number}[]>([]);
   const compiledFuncRef = useRef(compileExpression(expression));
 
-  // Visual constants
-  const SCALE = 1; // 1 logical unit = 1 pixel for simplicity in this demo, but can be scaled if needed.
+  const SCALE = 1; // Logical to Pixel scale mapping
   
+  // Level Setup
   useEffect(() => {
-    // Reset level state
     setExpression(level.initialExpression);
-    setTargets(level.targets.map(t => ({ ...t, hit: false, rippleTime: 0 })));
-    setParams({ a: 1, b: 1, c: 0 }); // Defaults
+    setParams({ a: 1, b: 1, c: 0 });
+    simState.current.targets = level.targets.map(t => ({ ...t, hit: false, rippleTime: 0 }));
+    setScore(0);
     resetSimulation();
   }, [currentLevelIdx, level]);
 
+  // Expression Compilation Sync
   useEffect(() => {
     compiledFuncRef.current = compileExpression(expression);
   }, [expression]);
 
   const resetSimulation = () => {
-    setIsLaunching(false);
-    setIsRevealing(false);
-    ballPosRef.current = { x: -400, y: 0, active: false }; // Start far left
-    trailRef.current = [];
-    particlesRef.current = [];
-    timeRef.current = 0;
-    setTargets(prev => prev.map(t => ({ ...t, hit: false, rippleTime: 0 })));
+    simState.current.isLaunching = false;
+    simState.current.isRevealing = false;
+    simState.current.targets.forEach(t => { t.hit = false; t.rippleTime = 0; });
+    setScore(0);
+    ballPosRef.current = { x: -1500, y: 0, active: false }; 
+    hitParticlesRef.current = [];
+    inkParticlesRef.current = [];
   };
 
   const handleLaunch = () => {
     setAttempts(a => a + 1);
     resetSimulation();
-    setIsLaunching(true);
+    simState.current.isLaunching = true;
     ballPosRef.current.active = true;
-    ballPosRef.current.x = -window.innerWidth / 2; // start from left edge of screen logic
+    // Start strictly from the left logical edge
+    ballPosRef.current.x = -1500; 
   };
 
   const handleReveal = () => {
     resetSimulation();
-    setIsRevealing(true);
+    simState.current.isRevealing = true;
     setExpression(level.solution);
   };
 
   // Convert logical coordinates to canvas coordinates
   const toScreen = (cx: number, cy: number, lx: number, ly: number) => ({
     sx: cx + lx * SCALE,
-    sy: cy - ly * SCALE // Y goes up in math, down in canvas
+    sy: cy - ly * SCALE 
   });
 
   useEffect(() => {
@@ -114,13 +116,10 @@ export default function MathGame() {
       const cx = cw / 2;
       const cy = ch / 2;
 
-      // Clear background with extremely low opacity for trails or fully clear for crisp grid
       ctx.clearRect(0, 0, cw, ch);
       
       // 1. Draw Grid & Axes
       ctx.lineWidth = 1;
-      
-      // Grid
       ctx.strokeStyle = 'rgba(0, 0, 0, 0.03)';
       ctx.beginPath();
       const gridSize = 50;
@@ -128,26 +127,23 @@ export default function MathGame() {
       for (let y = cy % gridSize; y < ch; y += gridSize) { ctx.moveTo(0, y); ctx.lineTo(cw, y); }
       ctx.stroke();
 
-      // Axes
       ctx.strokeStyle = 'rgba(0, 0, 0, 0.15)';
       ctx.beginPath();
-      ctx.moveTo(0, cy); ctx.lineTo(cw, cy); // X
-      ctx.moveTo(cx, 0); ctx.lineTo(cx, ch); // Y
+      ctx.moveTo(0, cy); ctx.lineTo(cw, cy); 
+      ctx.moveTo(cx, 0); ctx.lineTo(cx, ch); 
       ctx.stroke();
 
-      // Origin
-      ctx.fillStyle = '#d1b46b'; // Light gold
+      ctx.fillStyle = '#d1b46b'; 
       ctx.beginPath();
       ctx.arc(cx, cy, 3, 0, Math.PI * 2);
       ctx.fill();
 
-      // 2. Compute Trajectory
       const { isValid, evaluate } = compiledFuncRef.current;
       
-      // Draw static preview trajectory if not launching
-      if (isValid && !isLaunching && !isRevealing) {
+      // 2. Draw static preview trajectory
+      if (isValid && !simState.current.isLaunching && !simState.current.isRevealing) {
         ctx.beginPath();
-        ctx.strokeStyle = 'rgba(28, 28, 28, 0.2)'; // Ink primary faded
+        ctx.strokeStyle = 'rgba(28, 28, 28, 0.2)'; 
         ctx.lineWidth = 2;
         let started = false;
         for(let lx = -cw/2; lx <= cw/2; lx += 2) {
@@ -161,9 +157,14 @@ export default function MathGame() {
         ctx.stroke();
       }
 
-      // 3. Update & Draw Launch/Ball
-      if (isLaunching && isValid) {
+      // 3. Update Launch State
+      if (simState.current.isLaunching && isValid) {
         const speed = 4;
+        // Make sure it starts roughly slightly before the screen
+        if (ballPosRef.current.x < -cw/2 - 100) {
+           ballPosRef.current.x = -cw/2 - 50;
+        }
+
         ballPosRef.current.x += speed;
         const lx = ballPosRef.current.x;
         
@@ -172,66 +173,73 @@ export default function MathGame() {
           ballPosRef.current.y = ly;
           const { sx, sy } = toScreen(cx, cy, lx, ly);
 
-          trailRef.current.push({ x: sx, y: sy });
-          if (trailRef.current.length > 100) trailRef.current.shift();
+          // Spawn vibrant ink trail (Eastern flow)
+          if (lx >= -cw/2 && lx <= cw/2) {
+             const inkColors = ['#1c1c1c', '#5e5e5e', '#d44d4d', '#5a7d65', '#d1b46b', '#4f8a8b'];
+             inkParticlesRef.current.push({
+                x: sx, y: sy,
+                color: inkColors[Math.floor(Math.random() * inkColors.length)],
+                size: Math.random() * 5 + 3
+             });
+          }
 
           // Check collisions with targets
-          setTargets(prev => prev.map(t => {
-            if (t.hit) return { ...t, rippleTime: t.rippleTime + 1 };
+          let hitAny = false;
+          simState.current.targets.forEach(t => {
+            if (t.hit) {
+               t.rippleTime++;
+               return;
+            }
+            // Increased hit detection radius to 30 to prevent jumping over targets
             const dist = Math.hypot(lx - t.x, ly - t.y);
-            if (dist < 15) { // Hit radius
-              setScore(s => s + 1);
-              // Spawn ink particles
-              for(let i=0; i<15; i++) {
+            if (dist < 30) { 
+              hitAny = true;
+              t.hit = true;
+              t.rippleTime = 1;
+              // Spawn explosion particles
+              for(let i=0; i<20; i++) {
                 const angle = Math.random() * Math.PI * 2;
-                const v = Math.random() * 2;
-                particlesRef.current.push({
+                const v = Math.random() * 3 + 1;
+                hitParticlesRef.current.push({
                    x: sx, y: sy,
                    vx: Math.cos(angle)*v, vy: Math.sin(angle)*v,
                    life: 1, maxLife: Math.random()*30 + 20,
-                   color: '#5a7d65', size: Math.random()*3 + 1
+                   color: '#5a7d65', size: Math.random()*4 + 2
                 });
               }
-              return { ...t, hit: true, rippleTime: 1 };
             }
-            return t;
-          }));
+          });
 
-          if (lx > cw / 2) {
-            setIsLaunching(false);
+          if (hitAny) {
+             // Sync score back to react state safely
+             setScore(simState.current.targets.filter(t => t.hit).length);
+          }
+
+          if (lx > cw / 2 + 100) {
+            simState.current.isLaunching = false;
             ballPosRef.current.active = false;
-            // Check win condition
-            setTimeout(() => {
-              setTargets(curr => {
-                if (curr.every(t => t.hit)) {
-                  // could auto advance
-                }
-                return curr;
-              });
-            }, 500);
           }
         } catch(e) {}
       }
 
-      // 4. Draw Trails
-      if (trailRef.current.length > 1) {
+      // 4. Draw Flowing Ink Trail
+      for(let i = inkParticlesRef.current.length - 1; i >= 0; i--) {
+        const p = inkParticlesRef.current[i];
         ctx.beginPath();
-        ctx.strokeStyle = 'rgba(28, 28, 28, 0.4)';
-        ctx.lineWidth = 3;
-        ctx.lineCap = 'round';
-        ctx.lineJoin = 'round';
-        ctx.moveTo(trailRef.current[0].x, trailRef.current[0].y);
-        for(let i=1; i<trailRef.current.length; i++) {
-          ctx.lineTo(trailRef.current[i].x, trailRef.current[i].y);
+        ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+        ctx.fillStyle = p.color;
+        ctx.fill();
+        p.size *= 0.94; // shrink over time
+        if (p.size < 0.3) {
+           inkParticlesRef.current.splice(i, 1);
         }
-        ctx.stroke();
       }
 
       // 5. Draw Targets
-      targets.forEach(t => {
+      simState.current.targets.forEach(t => {
         const { sx, sy } = toScreen(cx, cy, t.x, t.y);
         
-        // Ripple
+        // Ripple Effect
         if (t.hit && t.rippleTime > 0 && t.rippleTime < 60) {
           ctx.beginPath();
           ctx.arc(sx, sy, 8 + t.rippleTime, 0, Math.PI * 2);
@@ -241,26 +249,26 @@ export default function MathGame() {
         }
 
         ctx.beginPath();
-        ctx.arc(sx, sy, 8, 0, Math.PI * 2);
-        ctx.fillStyle = t.hit ? '#5a7d65' : '#d44d4d'; // Green vs Red
+        ctx.arc(sx, sy, 10, 0, Math.PI * 2);
+        ctx.fillStyle = t.hit ? '#5a7d65' : '#d44d4d'; // Green vs Red (Cinnabar)
         ctx.fill();
         
         ctx.beginPath();
-        ctx.arc(sx, sy, 4, 0, Math.PI*2);
-        ctx.fillStyle = 'rgba(255,255,255,0.8)';
+        ctx.arc(sx, sy, 5, 0, Math.PI*2);
+        ctx.fillStyle = 'rgba(251, 251, 249, 0.9)'; // Rice paper dot
         ctx.fill();
       });
 
-      // 6. Draw Particles
-      for(let i=particlesRef.current.length-1; i>=0; i--) {
-        const p = particlesRef.current[i];
+      // 6. Draw Explosion Particles
+      for(let i=hitParticlesRef.current.length-1; i>=0; i--) {
+        const p = hitParticlesRef.current[i];
         p.x += p.vx;
         p.y += p.vy;
         p.life++;
-        p.size *= 0.95;
+        p.size *= 0.96;
         
         if (p.life > p.maxLife || p.size < 0.1) {
-          particlesRef.current.splice(i, 1);
+          hitParticlesRef.current.splice(i, 1);
           continue;
         }
         
@@ -270,20 +278,18 @@ export default function MathGame() {
         ctx.fill();
       }
 
-      // 7. Draw Ball
+      // 7. Draw Ball (Moving Entity)
       if (ballPosRef.current.active) {
         const { sx, sy } = toScreen(cx, cy, ballPosRef.current.x, ballPosRef.current.y);
         
-        // Glow
-        const gradient = ctx.createRadialGradient(sx, sy, 0, sx, sy, 15);
-        gradient.addColorStop(0, 'rgba(255, 255, 255, 0.8)');
-        gradient.addColorStop(1, 'rgba(255, 255, 255, 0)');
+        const gradient = ctx.createRadialGradient(sx, sy, 0, sx, sy, 20);
+        gradient.addColorStop(0, 'rgba(209, 180, 107, 0.9)');
+        gradient.addColorStop(1, 'rgba(209, 180, 107, 0)');
         ctx.beginPath();
-        ctx.arc(sx, sy, 15, 0, Math.PI * 2);
+        ctx.arc(sx, sy, 20, 0, Math.PI * 2);
         ctx.fillStyle = gradient;
         ctx.fill();
 
-        // Core
         ctx.beginPath();
         ctx.arc(sx, sy, 4, 0, Math.PI*2);
         ctx.fillStyle = '#fff';
@@ -295,7 +301,8 @@ export default function MathGame() {
 
     requestRef.current = requestAnimationFrame(render);
     return () => cancelAnimationFrame(requestRef.current);
-  }, [targets, isLaunching, isRevealing, params]);
+    // Explicitly removed React state dependencies to prevent render cycle blocking 
+  }, [params]); // only rebind loop if params map changes structure
 
   return (
     <div className="relative w-screen h-screen bg-background flex flex-col items-center overflow-hidden font-sans">
@@ -322,7 +329,6 @@ export default function MathGame() {
       >
         <div className="flex items-baseline gap-4">
           <h1 className="text-2xl font-semibold tracking-wider">MathBlaster</h1>
-          <span className="text-sm font-light text-ink-light opacity-60">| Eastern Modernism</span>
         </div>
         <div className="flex items-center gap-8 text-sm font-mono text-ink-light">
           <div className="flex items-center gap-2">
@@ -343,7 +349,7 @@ export default function MathGame() {
         <div className="absolute top-4 left-8 z-10 flex flex-col gap-6">
           <div className="flex items-center gap-4">
             <button onClick={() => setCurrentLevelIdx(Math.max(0, currentLevelIdx - 1))} disabled={currentLevelIdx === 0}
-              className="p-2 rounded-full hover:bg-ink-light/10 transition-colors disabled:opacity-20 text-ink-light">
+              className="p-2 rounded-full hover:bg-ink-light/10 transition-colors disabled:opacity-20 text-ink-light cursor-pointer">
               <ChevronLeft size={20} />
             </button>
             <div className="text-center font-mono">
@@ -351,7 +357,7 @@ export default function MathGame() {
               <div className="text-lg font-medium text-ink-primary tracking-wide">{level.name}</div>
             </div>
             <button onClick={() => setCurrentLevelIdx(Math.min(LEVELS.length - 1, currentLevelIdx + 1))} disabled={currentLevelIdx === LEVELS.length - 1}
-              className="p-2 rounded-full hover:bg-ink-light/10 transition-colors disabled:opacity-20 text-ink-light">
+              className="p-2 rounded-full hover:bg-ink-light/10 transition-colors disabled:opacity-20 text-ink-light cursor-pointer">
               <ChevronRight size={20} />
             </button>
           </div>
@@ -390,7 +396,7 @@ export default function MathGame() {
                   type="range" min="-10" max="10" step="0.1"
                   value={params[param as keyof typeof params]}
                   onChange={(e) => setParams({...params, [param]: parseFloat(e.target.value)})}
-                  className="flex-1 accent-ink-primary"
+                  className="flex-1 accent-ink-primary cursor-pointer"
                 />
                 <span className="w-8 text-right text-ink-primary">{params[param as keyof typeof params].toFixed(1)}</span>
               </div>
@@ -415,22 +421,23 @@ export default function MathGame() {
           </div>
 
           {/* Actions */}
-          <div className="flex-1 flex justify-end gap-3">
+          <div className="flex-1 flex justify-end gap-3 select-none">
             <button 
               onClick={handleReveal}
-              className="px-4 py-2 rounded-full border border-ink-light/20 text-ink-light hover:bg-ink-light/5 hover:text-ink-primary transition-all text-sm flex items-center gap-2"
+              className="px-4 py-2 rounded-full border border-ink-light/20 text-ink-light hover:bg-ink-light/5 hover:text-ink-primary transition-all text-sm flex items-center gap-2 cursor-pointer"
             >
               <Eye size={16} /> Reveal
             </button>
             <button 
               onClick={resetSimulation}
-              className="p-3 rounded-full hover:bg-ink-light/10 text-ink-light transition-all"
+              className="p-3 rounded-full hover:bg-ink-light/10 text-ink-light transition-all cursor-pointer"
             >
               <RotateCcw size={18} />
             </button>
             <button 
+              // Removed dynamic checks that could cause click failures
               onClick={handleLaunch}
-              className="px-8 py-3 rounded-full bg-ink-primary text-background hover:bg-ink-primary/90 shadow-md hover:shadow-lg transition-all flex items-center gap-2 tracking-wide font-medium"
+              className="px-8 py-3 rounded-full bg-ink-primary text-background hover:bg-ink-primary/80 shadow-md hover:shadow-lg transition-all flex items-center gap-2 tracking-wide font-medium cursor-pointer"
             >
               <Play size={18} fill="currentColor" /> Launch
             </button>
